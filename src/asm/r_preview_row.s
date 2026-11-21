@@ -8,7 +8,8 @@
 ;   per pixel, instead of a 32-cycle pointer reload from .bss).
 ;   Arguments are the CE toolchain's 24-bit stack args:
 ;     (sp+3) src, (sp+6) dst, (sp+9) hmap.
-;   Uses AF, BC, DE, HL, IX, IY (all free for the callee in this ABI).
+;   Uses AF, BC, DE, HL, IY and shadow AF (free for the callee in this ABI).
+;   IX is callee-saved here: save it in .bss and restore it before RET.
 ;   The 320-pixel loop is split into 5 x 64 so an 8-bit counter in the
 ;   shadow AF' tracks the inner count; the outer count lives in a byte
 ;   in .bss (touched only 5 times per row).
@@ -28,12 +29,18 @@
 
 	.section	.bss
 fill_outer:	.space	1
+saved_ix:	.space	3		; IX is callee-saved in this ABI
+saved_sp:	.space	3		; stack args are caller-cleaned here
 
 	.extern	_colLUT
 	.section	.text._asm_fill_row,"ax",@progbits
 	.globl	_asm_fill_row
 	.type	_asm_fill_row,@function
 _asm_fill_row:
+	push	ix			; save caller's IX (callee-saved)
+	pop	iy			; IY = old IX
+	ld	(saved_ix), iy		; stash it for the return
+	ld	(saved_sp), sp		; caller cleans the 3 stack args: restore SP on exit
 	pop	bc			; return address (3 bytes in ADL mode)
 	pop	hl			; src  -> HL
 	pop	de			; dst  -> DE
@@ -69,5 +76,7 @@ _asm_fill_row:
 	dec	a
 	ld	(fill_outer), a
 	jr	nz, .Louter
+	ld	sp, (saved_sp)		; back to the call frame (caller pops the args)
+	ld	ix, (saved_ix)		; restore caller's IX before returning
 	ret
 	.size	_asm_fill_row, .-_asm_fill_row
