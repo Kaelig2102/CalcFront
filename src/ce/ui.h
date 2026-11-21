@@ -63,5 +63,6 @@ void hud_panel(void);
 void hud_logo(int y);                          /* the CALCFRONT logo, centred */
 int hud_keycap(const char *s, int x, int y);   /* a key drawn as a cap; returns its width */
 void hud_lines(const char *s, int x, int y, uint8_t color); /* text with \n line breaks */
+void build_hmap(void);   /* setup screen: horizontal stretch table (one byte per screen column) */
 
 #endif

@@ -20,10 +20,11 @@ int16_t r_sel = -1;
 
 #define VRAM ((uint8_t *)0xD40000)
 
-static uint8_t colLUT[256];
+uint8_t colLUT[256];  /* global: src/asm/r_preview_row.s reads _colLUT directly */
 static uint8_t line[SCR_W], rline[SCR_W];
 static uint8_t zsh;        /* log2(zoom) */
 static uint8_t railLo, railN; /* rail mark inside big tiles: offset and size */
+static uint8_t g_hmap[SCR_W]; /* r_preview(): per-screen-column source tile */
 
 #define DQ 1024
 static tile_t dq[DQ];
@@ -1000,20 +1001,44 @@ void r_icon(uint8_t type, int x, int y)
     vh = oh;
 }
 
-/* whole map, shrunk to fit the viewport (setup screen) */
+/* Per-column horizontal map: the preview pixel px comes from source tile
+ * (px * g_W / SCR_W). One byte per column keeps the draw loop a pure
+ * byte stream with no multiply or divide inside. */
+void build_hmap(void)
+{
+    int px;
+    for (px = 0; px < SCR_W; px++)
+        g_hmap[px] = (uint8_t)((uint32_t)px * (uint32_t)g_W / (uint32_t)SCR_W);
+}
+
+/* whole map, stretched to fill the entire setup area (no margins):
+ * pixel (px, sy) takes the nearest source tile (px*g_W/SCR_W, sy*g_H/vh).
+ * The area is painted left-to-right, top-to-bottom: every pixel of the
+ * vh x SCR_W setup region is painted exactly once.  The row loop below is
+ * pure 8-bit stream I/O; src/asm/r_preview_row.s does the 320-pixel fill
+ * on the calculator (the C version is used by the PC harness). */
+#if defined(HOST) || defined(CF_NOASM)
+static void fill_row(const uint8_t *src, uint8_t *dst,
+                     const uint8_t *hmap)
+{
+    int px;
+    for (px = 0; px < SCR_W; px++)
+        dst[px] = colLUT[src[hmap[px]]];
+}
+#else
+void asm_fill_row(const uint8_t *src, uint8_t *dst,
+                  const uint8_t *hmap);
+#define fill_row asm_fill_row
+#endif
+
 void r_preview(void)
 {
-    uint8_t step = 1;
-    int sx, sy, w, h, ox, oy;
-    while ((int)g_W > SCR_W * step || (int)g_H > vh * step) step++;
-    w = g_W / step;
-    h = g_H / step;
-    ox = (SCR_W - w) / 2;
-    oy = (vh - h) / 2;
-    memset(VRAM + (unsigned)vy0 * SCR_W, C_VOID, (unsigned)vh * SCR_W);
-    for (sy = 0; sy < h; sy++) {
-        uint8_t *dst = VRAM + (unsigned)(vy0 + oy + sy) * SCR_W + ox;
-        tile_t row = g_rowStart[sy * step];
-        for (sx = 0; sx < w; sx++) dst[sx] = colLUT[g_map[row + sx * step]];
+    int sy;
+    uint8_t *area = VRAM + (unsigned)vy0 * SCR_W;
+    /* no memset: the loop below paints every pixel of the area */
+    for (sy = 0; sy < vh; sy++) {
+        const uint8_t *src = g_map + g_rowStart[(sy * g_H + vh / 2) / vh];
+        uint8_t *dst = area + (unsigned)sy * SCR_W;
+        fill_row(src, dst, g_hmap);
     }
 }

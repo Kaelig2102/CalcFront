@@ -1175,6 +1175,7 @@ static void setup_load_map(void)
     if (cfg.tribes > 30 - cfg.nations) cfg.tribes = (uint8_t)(30 - cfg.nations);
     vy0 = SETUP_H;
     vh = 240 - SETUP_H;
+    build_hmap();
     r_preview();
 }
 
